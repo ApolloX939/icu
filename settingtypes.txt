@@ -10,5 +10,10 @@ icu.return_to_origin (Return to the starting place) bool true
 icu.camera_forward (Camera forward) int 4 0 10
 icu.camera_up (Camera up) int 2 0 10
 
+# How much faster the victim walks while the controller holds the sprint key
+# (Aux1, "special"), unless the victim has the fast privilege (then fast
+# speed). Skyblock: Zero's own sprint is 1.8. 1 turns sprinting off.
+icu.sprint_multiplier (Sprint speed) float 1.8 1 4
+
 # Log every relayed action (punch, dig, place, use, formspec) to the server log.
 icu.log_actions (Log relayed actions) bool false

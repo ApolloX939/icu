@@ -111,14 +111,24 @@ for the session and restored at the end. Not mirrored: the minimap element, and
   victim's first action in it (see above), and only closed with it if the node
   has `on_receive_fields`. Mods that kept `core.show_formspec` in a local before
   icu loaded can't be mirrored.
-- The crafting grid isn't mirrored for the controller (the inventory lists
-  `main` and other plain lists are).
+- The crafting grid works for the controller like the player's own: the
+  preview is worked out as the controller changes the grid, and moving the
+  result out crafts (use up the ingredients, replacements, craft callbacks as
+  the victim, so quests count). Shift-click and "craft all" buttons that read
+  the victim's inventory work from what's written back. The result can only
+  be taken whole.
+- What the controller punches or places on is what's under the crosshair, seen
+  from the camera, as far as the victim can reach; if there's nothing there,
+  the same direction from the victim's eyes (so looking straight down at an
+  edge reaches the node under the victim). The victim's own held item and
+  armor are never hit.
 - Movement works by pushing the victim's velocity (a server can't press a
   client's keys): it is not exact (acceleration, ice, ladders, flying and
   swimming aren't handled specially). The victim's client slows them down
   a fixed fraction every step when they press nothing; icu learns that fraction
   from the victim's speed and pushes harder to make up for it, so the victim
   walks at about the normal walking speed (measured 4.1 of 4 nodes/s; it was 1.25).
+  The sprint key (Aux1) speeds the victim up by `icu.sprint_multiplier`.
 
 ## Mods that saved `core.show_formspec`
 
@@ -134,6 +144,7 @@ load after icu (smartshop does) need nothing.
 | --- | --- | --- |
 | `icu.notify_target` | true | Tell the victim when a control session starts and ends (view only is never announced). |
 | `icu.return_to_origin` | true | Put the controller back where they were at the end. |
+| `icu.sprint_multiplier` | 1.8 | Walking speed multiplier while the controller holds the sprint key (Aux1), for victims without `fast` (a game's own sprint only speeds up the player holding the key, i.e. the controller). |
 | `icu.camera_forward` / `icu.camera_up` | 4 / 2 | Camera offset from the victim's eyes (1/10 node) when looking straight ahead. Looking down moves the camera up and forward (up to 0.6 node more each, from 17 to 69 degrees down) so the victim's tilted head stays out of the view. |
 | `icu.log_actions` | false | Log every relayed action. |
 

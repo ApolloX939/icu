@@ -69,14 +69,78 @@ local function write_back(s)
 	end
 end
 
+-- The engine works out a player's craft preview and takes the ingredients
+-- itself, but only for the player's own inventory, not for the detached copy
+-- the controller works in. So the controller's changes of the craft grid
+-- update the preview here, and taking the result crafts, like the engine does.
+local function craft_width(list)
+	return math.max(1, math.floor(math.sqrt(#list) + 0.5))
+end
+
+local function craft_preview(s)
+	local victim = core.get_player_by_name(s.victim)
+	local det = core.get_inventory({ type = "detached", name = s.detached })
+	if not victim or not det then return end
+	local real = victim:get_inventory()
+	local grid = det:get_list("craft")
+	if not grid then return end
+	local out = ItemStack()
+	local res = core.get_craft_result({ method = "normal", width = craft_width(grid), items = grid })
+	if res and res.item and not res.item:is_empty() then
+		out = res.item
+		for _, predict in ipairs(core.registered_craft_predicts) do
+			out = predict(out, victim, grid, real) or out
+		end
+	end
+	for _, inv in ipairs({ det, real }) do
+		if inv:get_size("craftpreview") > 0 then inv:set_stack("craftpreview", 1, out) end
+	end
+	s.sig.craftpreview = out:to_string()
+end
+
+-- The controller took the preview: use up the ingredients (the result is
+-- already in the list it was moved to).
+local function craft_done(s)
+	local victim = core.get_player_by_name(s.victim)
+	local det = core.get_inventory({ type = "detached", name = s.detached })
+	if not victim or not det then return end
+	local real = victim:get_inventory()
+	local old = det:get_list("craft")
+	local res, left = core.get_craft_result({ method = "normal", width = craft_width(old), items = old })
+	if not res or res.item:is_empty() then return end
+	det:set_list("craft", left.items)
+	write_back(s) -- the victim's inventory first, then the extras go on top of it
+	for _, extra in ipairs(res.replacements or {}) do
+		local rest = real:add_item("main", extra)
+		if not rest:is_empty() then core.item_drop(rest, victim, victim:get_pos()) end
+	end
+	for _, on_craft in ipairs(core.registered_on_crafts) do
+		on_craft(res.item, victim, old, real)
+	end
+	icu.sync_inventory(s, true)
+end
+
+local function craft_list(name) return name == "craftpreview" or name == "craftresult" end
+
 local function detached_callbacks(s)
+	local function changed(from_list, to_list)
+		if from_list == "craftpreview" then craft_done(s) else write_back(s) end
+		craft_preview(s)
+	end
 	return {
-		allow_move = function(_, _, _, _, _, count) return count end,
-		allow_put = function(_, _, _, stack) return stack:get_count() end,
+		allow_move = function(inv, from_list, from_index, to_list, _, count)
+			if craft_list(to_list) then return 0 end
+			-- the result can only be taken whole
+			if from_list == "craftpreview" and count < inv:get_stack(from_list, from_index):get_count() then
+				return 0
+			end
+			return count
+		end,
+		allow_put = function(_, listname, _, stack) return craft_list(listname) and 0 or stack:get_count() end,
 		allow_take = function(_, _, _, stack) return stack:get_count() end,
-		on_move = function() write_back(s) end,
-		on_put = function() write_back(s) end,
-		on_take = function() write_back(s) end,
+		on_move = function(_, from_list, _, to_list) changed(from_list, to_list) end,
+		on_put = function(_, listname) changed(nil, listname) end,
+		on_take = function(_, listname) changed(listname) end,
 	}
 end
 

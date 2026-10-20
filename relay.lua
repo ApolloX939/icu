@@ -14,25 +14,54 @@ local function reach(victim)
 	return (def and def.range) or (core.registered_items[""] and core.registered_items[""].range) or 4
 end
 
--- what the victim points at: the first node or object along the view
-local function pointed(s, controller, victim)
-	local pos = victim:get_pos()
-	pos.y = pos.y + (victim:get_properties().eye_height or 1.625)
-	pos = vector.add(pos, vector.divide(victim:get_eye_offset(), 10))
-	local dir = controller:get_look_dir()
-	local ray = core.raycast(pos, vector.add(pos, vector.multiply(dir, reach(victim))), true, false)
-	for pt in ray do
+-- Objects that are part of the victim or controller (their held item, armor
+-- and other attached things) are never what the controller points at.
+local function is_part_of(obj, victim, controller)
+	local parent = obj:get_attach()
+	return parent == victim or parent == controller
+end
+
+-- Where the controller's camera is: the victim's eyes, moved by the camera
+-- offset (which turns with the yaw, not the pitch).
+local function camera_pos(controller, victim)
+	local eyes = victim:get_pos()
+	eyes.y = eyes.y + (victim:get_properties().eye_height or 1.625)
+	local offset = controller:get_eye_offset()
+	local yaw = controller:get_look_horizontal()
+	local up, forward = offset.y / 10, offset.z / 10
+	return { x = eyes.x - math.sin(yaw) * forward, y = eyes.y + up, z = eyes.z + math.cos(yaw) * forward }, eyes
+end
+
+-- The first node or object along a ray that the controller can point at.
+local function first_hit(from, dir, length, victim, controller)
+	for pt in core.raycast(from, vector.add(from, vector.multiply(dir, length)), true, false) do
 		if pt.type == "object" then
 			local obj = pt.ref
-			local skip = obj == victim
+			local skip = obj == victim or obj == controller or is_part_of(obj, victim, controller)
 			if not skip and obj:is_player() and icu.by_controller[obj:get_player_name()] then skip = true end
-			if not skip then return pt, dir end
+			if not skip then return pt end
 		else
-			return pt, dir
+			return pt
 		end
 	end
-	return { type = "nothing" }, dir
 end
+
+-- What the victim points at. What's under the crosshair, seen from the
+-- camera (looking down moves the camera up and forward, so from the victim's
+-- eyes the crosshair and the hit node would differ by up to a node), as far as
+-- the victim can reach from their eyes; if there is nothing there, the same
+-- direction from the victim's eyes (so looking straight down at an edge
+-- still reaches the node under the victim).
+local function pointed(s, controller, victim)
+	local cam, eyes = camera_pos(controller, victim)
+	local dir = controller:get_look_dir()
+	local range = reach(victim)
+	local pt = first_hit(cam, dir, range + vector.distance(cam, eyes), victim, controller)
+	if pt and vector.distance(pt.intersection_point or cam, eyes) <= range + 0.5 then return pt, dir end
+	pt = first_hit(eyes, dir, range, victim, controller)
+	return pt or { type = "nothing" }, dir
+end
+
 
 local function to_pointed_thing(pt)
 	if pt.type == "node" then return { type = "node", under = pt.under, above = pt.above } end
@@ -193,10 +222,9 @@ function icu.move_step(s, controller, victim, dt)
 	local flat = math.sqrt(vel.x * vel.x + vel.z * vel.z)
 
 	if wants or (s.moving and flat > 0.3) then
-		local look = controller:get_look_dir()
-		local len = math.sqrt(look.x * look.x + look.z * look.z)
-		local fx, fz = 0, 0
-		if len > 1e-3 then fx, fz = look.x / len, look.z / len end
+		-- the way they face, whatever the pitch (looking straight down still walks forward)
+		local yaw = controller:get_look_horizontal()
+		local fx, fz = -math.sin(yaw), math.cos(yaw)
 		local dx, dz = fx * forward + fz * side, fz * forward - fx * side
 		local n = math.sqrt(dx * dx + dz * dz)
 		local tx, tz = 0, 0
@@ -204,8 +232,14 @@ function icu.move_step(s, controller, victim, dt)
 			local speed = setting("movement_speed_walk", 4)
 			if c.sneak then
 				speed = setting("movement_speed_crouch", 1.35)
-			elseif c.aux1 and core.check_player_privs(s.victim, { fast = true }) then
-				speed = setting("movement_speed_fast", 20)
+			elseif c.aux1 then
+				if core.check_player_privs(s.victim, { fast = true }) then
+					speed = setting("movement_speed_fast", 20)
+				else
+					-- the sprint key: a game's sprint (Skyblock: Zero's is x1.8) only speeds
+					-- up the player who holds the key, which is the controller
+					speed = speed * (tonumber(core.settings:get("icu.sprint_multiplier")) or 1.8)
+				end
 			end
 			speed = speed * (victim:get_physics_override().speed or 1)
 			tx, tz = dx / n * speed, dz / n * speed

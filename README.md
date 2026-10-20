@@ -21,7 +21,9 @@ A server operator tool: **control** another player, or **watch** them
 ## Control
 
 - The controller's camera sits at the victim's eyes (a little in front of the
-  face, outside the head model) and shows what the victim sees.
+  face, outside the head model) and shows what the victim sees. The victim's
+  hotbar is drawn on the controller's HUD, with the controller's own selected
+  slot highlighted.
 - The victim's look follows the controller's: **pitch, yaw and fov**.
 - The controller's **punch, place and use** act as the victim, with the
   victim's items and permissions: digging (with the tool's dig time and wear),
@@ -36,16 +38,43 @@ A server operator tool: **control** another player, or **watch** them
   inventory.
 - Mods' inventory callbacks, craft callbacks and `on_receive_fields` see the
   victim as the actor, not the controller.
+- **Chat**: what the controller types, messages and commands alike, is said and
+  run **as the victim** (with the victim's privileges), except `/icu ...`, which
+  stays the controller's (so `/icu stop` works). Replies the victim gets, such as
+  command output and private messages, are shown to the controller too.
+- **Movement**: the controller's keys (forward, back, left, right in the
+  direction they look, sneak, jump, and sprint when the victim has `fast`) move
+  the victim. The controller's own body stays attached to the victim.
 - Nothing the controller does goes through as themselves: the `interact`
   privilege is taken away for the session (and given back when it ends, or at
   their next join if the server stopped meanwhile).
 
 ## View only
 
-The viewer's camera and look (and fov) follow the victim, and the HUD shows who
-and what they hold. Nothing the viewer does reaches the world or the victim:
-no `interact`, no relayed actions, and formspecs are shown as read-only pictures
-(refreshed twice a second).
+View only shows the viewer **everything the victim sees**, the way control does,
+but nothing the viewer does changes anything:
+
+- The camera, **pitch, yaw and fov** follow the victim (the viewer can't change
+  them).
+- The victim's HUD is shown (see below), with their hotbar (selected slot
+  highlighted) and health and breath, plus who and what they hold.
+- Every window shown to the victim (chests, machines, mod windows) is shown to
+  the viewer too, with the real lists (items, counts, tooltips), kept up to
+  date but **read-only**: the viewer can't move, take or put anything.
+- The viewer's inventory key opens the victim's inventory window, read-only.
+- The viewer's chat is their own, and their movement keys do nothing (they
+  follow the victim).
+- No `interact`, no relayed actions: nothing the viewer does reaches the world or
+  the victim, and fields they submit in those windows are dropped.
+
+## The victim's HUD
+
+In both modes the controller / viewer's HUD is the victim's: every element mods
+add to the victim (bars, texts, images, waypoints), with later changes and
+removals, the HUD flags (crosshair, chat..., with chat always on), the hotbar,
+and health and breath bars. The viewer's own mod elements are moved out of sight
+for the session and restored at the end. Not mirrored: the minimap element, and
+`inventory` type elements (they would show the controller's own list).
 
 ## Limits
 
@@ -64,7 +93,9 @@ no `interact`, no relayed actions, and formspecs are shown as read-only pictures
   can't be mirrored either.
 - The crafting grid isn't mirrored for the controller (the inventory lists
   `main` and other plain lists are).
-- The victim keeps moving themselves (movement isn't relayed).
+- Movement works by pushing the victim's velocity (a server can't press a
+  client's keys): it is not exact (acceleration, ice, ladders, flying and
+  swimming aren't handled specially).
 
 ## Settings
 

@@ -35,6 +35,9 @@ core.register_privilege("icu_immune", {
 
 local modpath = core.get_modpath(core.get_current_modname())
 dofile(modpath .. "/session.lua")
+dofile(modpath .. "/hudmirror.lua")
+dofile(modpath .. "/chat.lua")
+dofile(modpath .. "/hud.lua")
 dofile(modpath .. "/forms.lua")
 dofile(modpath .. "/relay.lua")
 dofile(modpath .. "/commands.lua")

@@ -1,7 +1,7 @@
 -- Formspecs: what is shown to the victim is shown to the controller too, the
 -- controller's inventory lists are the victim's, and what the controller
--- submits goes to the mods as if the victim had. For a viewer the copy is
--- read-only (the lists are drawn as pictures).
+-- submits goes to the mods as if the victim had. For a viewer the copy is the
+-- same window with lists that can't be changed.
 
 local orig_show = core.show_formspec
 icu.raw_show = orig_show
@@ -9,7 +9,7 @@ icu.raw_show = orig_show
 local function esc(s) return core.formspec_escape(s) end
 
 ---------------------------------------------------------------------------
--- Read-only copy: every list[loc;name;x,y;w,h;start] becomes item pictures
+-- Read-only copy for a viewer
 ---------------------------------------------------------------------------
 
 local function inventory_at(loc, victim)
@@ -28,38 +28,68 @@ local function inventory_at(loc, victim)
 	if det then return core.get_inventory({ type = "detached", name = det }) end
 end
 
-local function read_only(fs, victim)
-	return (fs:gsub("([%a_]*)list%[([^;%]]+);([^;%]]+);([%-%d.]+),([%-%d.]+);([%d.]+),([%d.]+);?([%d]*)%]",
-		function(kind, loc, name, x, y, w, h, start)
-			if kind ~= "" then return nil end -- listring, listcolors...: untouched
-			local inv = inventory_at(loc, victim)
-			local list = inv and inv:get_list(name)
-			if not list then return "" end
-			x, y, w, h = tonumber(x), tonumber(y), math.floor(tonumber(w)), math.floor(tonumber(h))
-			local index = (tonumber(start) or 0) + 1
-			local out = {}
-			for row = 0, h - 1 do
-				for col = 0, w - 1 do
-					local stack = list[index]
-					index = index + 1
-					local px, py = x + col * 1.25, y + row * 1.25
-					out[#out + 1] = ("box[%g,%g;1,1;#ffffff22]"):format(px, py)
-					if stack and not stack:is_empty() then
-						out[#out + 1] = ("item_image[%g,%g;1,1;%s]"):format(px, py, esc(stack:get_name()))
-						if stack:get_count() > 1 then
-							out[#out + 1] = ("label[%g,%g;%d]"):format(px + 0.55, py + 0.85, stack:get_count())
-						end
-					end
-				end
+-- A viewer's copy shows the same lists, live, but from a detached inventory
+-- that refuses every change: each list[loc;name] is rewritten to a list of the
+-- viewer's own read-only inventory, which is kept equal to the original.
+local function list_key(loc, name)
+	return (loc .. "_" .. name):gsub("[^%w]", "_")
+end
+
+local function view_rewrite(s, fs)
+	local function mapped(loc, name)
+		local key = list_key(loc, name)
+		s.view_lists[key] = { loc = loc, name = name }
+		return "detached:" .. s.detached, key
+	end
+	fs = fs:gsub("%f[%w_]list%[([^;%]]+);([^;%]]+)", function(loc, name)
+		local d, key = mapped(loc, name)
+		return "list[" .. d .. ";" .. key
+	end)
+	fs = fs:gsub("listring%[([^;%]]+);([^;%]]+)%]", function(loc, name)
+		local d, key = mapped(loc, name)
+		return "listring[" .. d .. ";" .. key .. "]"
+	end)
+	return fs
+end
+
+-- the viewer's read-only inventory follows the real ones
+function icu.sync_view(s)
+	local det = core.get_inventory({ type = "detached", name = s.detached })
+	if not det then return end
+	for key, src in pairs(s.view_lists) do
+		local inv = inventory_at(src.loc, s.victim)
+		local list = inv and inv:get_list(src.name)
+		if list then
+			local parts = {}
+			for i, stack in ipairs(list) do parts[i] = stack:to_string() end
+			local sig = table.concat(parts, "|")
+			if s.sig[key] ~= sig then
+				s.sig[key] = sig
+				det:set_size(key, #list)
+				det:set_list(key, list)
 			end
-			return table.concat(out)
-		end))
+		end
+	end
 end
 
 local function copy_for(s, fs)
 	fs = icu.swap_player_words(fs, s)
-	if s.mode == "view" then fs = read_only(fs, s.victim) end
+	if s.mode == "view" then
+		fs = view_rewrite(s, fs)
+		icu.sync_view(s)
+	end
 	return fs
+end
+
+-- the formspec the viewer's inventory key opens: the victim's
+function icu.mirror_inventory_formspec(s)
+	local victim = core.get_player_by_name(s.victim)
+	local controller = core.get_player_by_name(s.controller)
+	if not victim or not controller then return end
+	local fs = victim:get_inventory_formspec()
+	if fs == s.last_invfs then return end
+	s.last_invfs = fs
+	controller:set_inventory_formspec(fs ~= "" and copy_for(s, fs) or "")
 end
 
 ---------------------------------------------------------------------------
@@ -80,11 +110,9 @@ function core.show_formspec(name, formname, fs)
 	end
 end
 
--- a viewer's copies show the inventories as they are now
+-- (a viewer's lists are live: only their contents are synced)
 function icu.refresh_view_forms(s)
-	for formname, fs in pairs(s.forms) do
-		orig_show(s.controller, formname, copy_for(s, fs))
-	end
+	icu.sync_view(s)
 end
 
 -- the node formspec a player's client would open itself (right-click on a
@@ -120,14 +148,15 @@ end
 local function on_fields(player, formname, fields)
 	local name = player:get_player_name()
 	local s = icu.by_controller[name]
-	if s and (s.forms[formname] or formname:sub(1, 9) == "icu:meta:") then
+	-- (formname "" is the inventory window the inventory key opens)
+	if s and (s.forms[formname] or formname == "" or formname:sub(1, 9) == "icu:meta:") then
 		if s.mode == "control" then
 			local victim = core.get_player_by_name(s.victim)
 			if victim then dispatch_as(victim, formname, fields, on_fields) end
 		end
 		if fields.quit then
 			s.forms[formname] = nil
-			if s.mode == "control" then orig_show(s.victim, formname, "") end
+			if s.mode == "control" and formname ~= "" then orig_show(s.victim, formname, "") end
 		end
 		return true
 	end

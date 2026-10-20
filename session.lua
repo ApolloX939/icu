@@ -115,6 +115,7 @@ function icu.start(controller_name, victim_name, mode)
 		controller = controller_name, victim = victim_name, mode = mode,
 		forms = {}, -- formspecs mirrored to the controller: forms[formname] = the victim's formspec
 		sig = {},
+		view_lists = {}, -- a viewer's read-only lists
 		detached = "icu_" .. controller_name,
 		saved = {},
 		dig = { progress = 0 },
@@ -149,9 +150,17 @@ function icu.start(controller_name, victim_name, mode)
 		s.callbacks = detached_callbacks(s)
 		core.create_detached_inventory(s.detached, s.callbacks, controller_name)
 		icu.sync_inventory(s, true)
-		local fs = victim:get_inventory_formspec()
-		if fs ~= "" then controller:set_inventory_formspec(icu.swap_player_words(fs, s)) end
+	else
+		-- every list of every window the viewer sees is a read-only copy
+		local deny = {
+			allow_move = function() return 0 end, allow_put = function() return 0 end,
+			allow_take = function() return 0 end,
+		}
+		core.create_detached_inventory(s.detached, deny, controller_name)
 	end
+	icu.mirror_inventory_formspec(s)
+
+	icu.hudmirror_start(s, controller, victim)
 
 	s.huds = {
 		title = hud_text(controller, (mode == "control" and "ICU: controlling " or "ICU: viewing (view only) ")
@@ -159,10 +168,12 @@ function icu.start(controller_name, victim_name, mode)
 		info = hud_text(controller, "", 0.09),
 	}
 
+	icu.hotbar_start(s, controller, victim)
+
 	core.log("action", ("[icu] %s starts %s %s"):format(controller_name,
 		mode == "control" and "controlling" or "viewing", victim_name))
 	if notify_enabled(mode) then
-		core.chat_send_player(victim_name, "*** " .. controller_name .. " is controlling you (your view and your hands).")
+		icu.raw_chat_send(victim_name, "*** " .. controller_name .. " is controlling you (your view and your hands).")
 	end
 	return true
 end
@@ -187,17 +198,19 @@ function icu.stop(controller_name, reason)
 		controller:set_fov(unpack(sv.fov))
 		controller:set_inventory_formspec(sv.invfs)
 		for _, id in pairs(s.huds) do controller:hud_remove(id) end
+		icu.hotbar_stop(s, controller)
+		icu.hudmirror_stop(s, controller)
 		for formname in pairs(s.forms) do icu.raw_show(controller_name, formname, "") end
 		if core.settings:get_bool("icu.return_to_origin", true) then controller:set_pos(sv.pos) end
 	end
-	if s.mode == "control" then core.remove_detached_inventory(s.detached) end
+	core.remove_detached_inventory(s.detached)
 	give_back_interact(controller_name)
 	if victim and s.mode == "control" then victim:set_fov(unpack(sv.victim_fov)) end
 
 	core.log("action", ("[icu] %s stops %s %s%s"):format(controller_name,
 		s.mode == "control" and "controlling" or "viewing", s.victim, reason and (" (" .. reason .. ")") or ""))
 	if victim and notify_enabled(s.mode) then
-		core.chat_send_player(s.victim, "*** " .. controller_name .. " is no longer controlling you.")
+		icu.raw_chat_send(s.victim, "*** " .. controller_name .. " is no longer controlling you.")
 	end
 	if controller then core.chat_send_player(controller_name, "ICU: session ended" .. (reason and (": " .. reason) or ".")) end
 	return true
@@ -236,6 +249,7 @@ core.register_globalstep(function(dtime)
 					s.last_fov, s.last_mult = fov, mult
 					victim:set_fov(fov, mult, 0)
 				end
+				icu.move_step(s, controller, victim, dtime)
 				icu.relay_step(s, controller, victim, dtime)
 			else
 				controller:set_look_horizontal(victim:get_look_horizontal())
@@ -246,6 +260,7 @@ core.register_globalstep(function(dtime)
 					controller:set_fov(fov, mult, 0)
 				end
 			end
+			icu.hotbar_update(s, controller, victim)
 			if refresh_info then
 				local wield = s.mode == "control" and icu.selected_stack(controller, victim) or victim:get_wielded_item()
 				local def = wield:get_definition()
@@ -254,6 +269,7 @@ core.register_globalstep(function(dtime)
 					wield:is_empty() and "nothing" or (def.short_description or def.description or wield:get_name()):gsub("\n.*", ""),
 					wield:get_count() > 1 and (" x" .. wield:get_count()) or ""))
 				if s.mode == "view" then icu.refresh_view_forms(s) end
+				icu.mirror_inventory_formspec(s)
 			end
 		end
 	end

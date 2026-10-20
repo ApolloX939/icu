@@ -175,3 +175,49 @@ function icu.relay_inner(s, controller, victim, dt, control)
 	end
 	s.was_place = control.place
 end
+
+---------------------------------------------------------------------------
+-- Movement: the controller's keys move the victim
+---------------------------------------------------------------------------
+
+local function setting(key, default) return tonumber(core.settings:get(key)) or default end
+
+-- The server can't set what a client's own keys do; it pushes the victim's
+-- velocity toward what the controller's keys ask for (walk, sneak, jump).
+function icu.move_step(s, controller, victim, dt)
+	local c = controller:get_player_control()
+	local forward = (c.up and 1 or 0) - (c.down and 1 or 0)
+	local side = (c.right and 1 or 0) - (c.left and 1 or 0)
+	local wants = forward ~= 0 or side ~= 0
+	local vel = victim:get_velocity()
+	local flat = math.sqrt(vel.x * vel.x + vel.z * vel.z)
+
+	if wants or (s.moving and flat > 0.3) then
+		local look = controller:get_look_dir()
+		local len = math.sqrt(look.x * look.x + look.z * look.z)
+		local fx, fz = 0, 0
+		if len > 1e-3 then fx, fz = look.x / len, look.z / len end
+		local dx, dz = fx * forward + fz * side, fz * forward - fx * side
+		local n = math.sqrt(dx * dx + dz * dz)
+		local tx, tz = 0, 0
+		if n > 0 then
+			local speed = setting("movement_speed_walk", 4)
+			if c.sneak then
+				speed = setting("movement_speed_crouch", 1.35)
+			elseif c.aux1 and core.check_player_privs(s.victim, { fast = true }) then
+				speed = setting("movement_speed_fast", 20)
+			end
+			speed = speed * (victim:get_physics_override().speed or 1)
+			tx, tz = dx / n * speed, dz / n * speed
+		end
+		local k = math.min(1, dt * 8)
+		victim:add_velocity({ x = (tx - vel.x) * k, y = 0, z = (tz - vel.z) * k })
+	end
+	s.moving = wants
+
+	s.jump_wait = (s.jump_wait or 0) - dt
+	if c.jump and s.jump_wait <= 0 and math.abs(vel.y) < 0.05 then
+		s.jump_wait = 0.4
+		victim:add_velocity({ x = 0, y = setting("movement_speed_jump", 6.5) * (victim:get_physics_override().jump or 1), z = 0 })
+	end
+end

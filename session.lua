@@ -118,12 +118,21 @@ end
 -- The client puts an attached player's camera at the parent's feet plus the
 -- player's own eye height (the attach position doesn't move it), so the camera
 -- would sit inside the victim's head model. The first person eye offset moves
--- it to just in front of the face.
--- Looking down, the victim's head tilts forward and down into the view, so
--- the camera moves up and forward as the pitch grows, to stay clear of it.
+-- it to just in front of the face (icu.camera_forward / icu.camera_up).
+-- The victim's head turns up and down with the look, about the neck, so the
+-- camera turns with it like a camera fixed to the face: looking down, it
+-- swings forward and down in front of the chest. Looking up it turns only
+-- half as much, so it stays in front of the face (behind the head, the
+-- victim's nametag would be in the view). The head never gets in the view.
+local NECK = 0.2 -- how far below the eyes the head turns (the usual player model)
+
 local function apply_camera(controller)
-	local t = math.min(1, math.max(0, (controller:get_look_vertical() - 0.3) / 0.9))
-	controller:set_eye_offset({ x = 0, y = icu.camera_up + 6 * t, z = icu.camera_forward + 6 * t })
+	local pitch = controller:get_look_vertical() -- (down is positive)
+	if pitch < 0 then pitch = pitch / 2 end
+	local f0, u0 = icu.camera_forward / 10, icu.camera_up / 10 + NECK
+	local forward = f0 * math.cos(pitch) + u0 * math.sin(pitch)
+	local up = u0 * math.cos(pitch) - f0 * math.sin(pitch) - NECK
+	controller:set_eye_offset({ x = 0, y = up * 10, z = forward * 10 })
 end
 
 -- What the controller's body looks like during a session. Other mods change
@@ -160,6 +169,36 @@ local function hide_children(s, controller)
 		end
 	end
 end
+
+-- What is attached to the victim (their held item, armor ...) would be right
+-- in front of the controller's camera: the controller doesn't see it, the
+-- other players still do.
+local function hide_victim_children(s, victim)
+	for _, child in ipairs(victim:get_children()) do
+		if not child:is_player() and s.unseen[child] == nil and child:get_observers() == nil then
+			local names = {}
+			for _, p in ipairs(core.get_connected_players()) do
+				local n = p:get_player_name()
+				if n ~= s.controller then names[n] = true end
+			end
+			child:set_observers(names)
+			s.unseen[child] = true
+		end
+	end
+end
+
+core.register_on_joinplayer(function(player)
+	local name = player:get_player_name()
+	for _, s in pairs(icu.by_controller) do
+		for obj in pairs(s.unseen or {}) do
+			if obj:is_valid() then
+				local o = obj:get_observers() or {}
+				o[name] = true
+				obj:set_observers(o)
+			end
+		end
+	end
+end)
 
 local function hud_text(controller, text, y)
 	return controller:hud_add({
@@ -223,6 +262,8 @@ function icu.start(controller_name, victim_name, mode)
 		visual_size = hidden_size() })
 	s.hidden_children = {} -- child object -> was it visible
 	hide_children(s, controller)
+	s.unseen = {} -- objects attached to the victim the controller doesn't see
+	hide_victim_children(s, victim)
 	controller:set_nametag_attributes({ text = " ", color = { a = 0, r = 0, g = 0, b = 0 }, bgcolor = false })
 	controller:set_attach(victim, "", { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 })
 	sv.eye_offset = { controller:get_eye_offset() }
@@ -291,6 +332,9 @@ function icu.stop(controller_name, reason)
 		end
 		if core.settings:get_bool("icu.return_to_origin", true) then controller:set_pos(sv.pos) end
 	end
+	for obj in pairs(s.unseen or {}) do
+		if obj:is_valid() then obj:set_observers(nil) end
+	end
 	core.remove_detached_inventory(s.detached)
 	give_back_interact(controller_name)
 	if victim and s.mode == "control" then
@@ -350,7 +394,10 @@ core.register_globalstep(function(dtime)
 					controller:set_fov(fov, mult, 0)
 				end
 			end
-			if refresh_info then hide_children(s, controller) end
+			if refresh_info then
+				hide_children(s, controller)
+				hide_victim_children(s, victim)
+			end
 			icu.hotbar_update(s, controller, victim)
 			icu.meta_step(s, victim, refresh_info)
 			if refresh_info then

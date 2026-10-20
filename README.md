@@ -143,7 +143,7 @@ load after icu (smartshop does) need nothing.
 | `icu.notify_target` | true | Tell the victim when a control session starts and ends (view only is never announced). |
 | `icu.return_to_origin` | true | Put the controller back where they were at the end. |
 | `icu.sprint_multiplier` | 1.8 | Walking speed multiplier while the controller holds the sprint key (Aux1), for victims without `fast` (a game's own sprint only speeds up the player holding the key, i.e. the controller). |
-| `icu.camera_forward` / `icu.camera_up` | 4 / 2 | Camera offset from the victim's eyes (1/10 node) when looking straight ahead. Looking down moves the camera up and forward (up to 0.6 node more each, from 17 to 69 degrees down) so the victim's tilted head stays out of the view. |
+| `icu.camera_forward` / `icu.camera_up` | 4 / 2 | Camera offset from the victim's eyes (1/10 node) when looking straight ahead. The camera turns about the victim's neck with the pitch, like a camera fixed to the face (half as much looking up). What is attached to the victim (held item, armor) is hidden from the controller only. |
 | `icu.log_actions` | false | Log every relayed action. |
 
 Every session start and end, control or view, is always logged on the server (`[icu] ...`).

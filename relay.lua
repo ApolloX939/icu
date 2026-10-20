@@ -47,7 +47,7 @@ local function first_hit(from, dir, length, victim, controller)
 end
 
 -- What the victim points at. What's under the crosshair, seen from the
--- camera (looking down moves the camera up and forward, so from the victim's
+-- camera (which turns about the victim's neck with the look, so from the victim's
 -- eyes the crosshair and the hit node would differ by up to a node), as far as
 -- the victim can reach from their eyes; if there is nothing there, the same
 -- direction from the victim's eyes (so looking straight down at an edge

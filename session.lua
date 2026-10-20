@@ -115,6 +115,7 @@ function icu.start(controller_name, victim_name, mode)
 		controller = controller_name, victim = victim_name, mode = mode,
 		forms = {}, -- formspecs mirrored to the controller: forms[formname] = the victim's formspec
 		sig = {},
+		meta = {}, -- node windows mirrored: meta[formname] = { pos, last formspec, own = icu opened it for the victim }
 		view_lists = {}, -- a viewer's read-only lists
 		detached = "icu_" .. controller_name,
 		saved = {},
@@ -201,6 +202,9 @@ function icu.stop(controller_name, reason)
 		icu.hotbar_stop(s, controller)
 		icu.hudmirror_stop(s, controller)
 		for formname in pairs(s.forms) do icu.raw_show(controller_name, formname, "") end
+		for formname, m in pairs(s.meta) do
+			if m.own and victim then icu.raw_show(s.victim, formname, "") end
+		end
 		if core.settings:get_bool("icu.return_to_origin", true) then controller:set_pos(sv.pos) end
 	end
 	core.remove_detached_inventory(s.detached)
@@ -261,6 +265,7 @@ core.register_globalstep(function(dtime)
 				end
 			end
 			icu.hotbar_update(s, controller, victim)
+			icu.meta_step(s, victim, refresh_info)
 			if refresh_info then
 				local wield = s.mode == "control" and icu.selected_stack(controller, victim) or victim:get_wielded_item()
 				local def = wield:get_definition()

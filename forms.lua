@@ -115,16 +115,79 @@ function icu.refresh_view_forms(s)
 	icu.sync_view(s)
 end
 
--- the node formspec a player's client would open itself (right-click on a
--- node with a "formspec" in its meta)
-function icu.show_node_formspec(s, pos)
+-- The formspec a client opens by itself when a player right-clicks a node with
+-- a "formspec" in its meta, with its lists (and the node's meta formspec is
+-- read again as it changes, like a client does).
+local function log_action(s, msg)
+	if core.settings:get_bool("icu.log_actions", false) then
+		core.log("action", ("[icu] %s / %s: %s"):format(s.controller, s.victim, msg))
+	end
+end
+
+local function meta_name(pos) return ("icu:meta:%d,%d,%d"):format(pos.x, pos.y, pos.z) end
+
+local function node_formspec(pos)
 	local fs = core.get_meta(pos):get_string("formspec")
-	if fs == "" then return false end
+	if fs == "" then return nil end
 	local loc = ("nodemeta:%d,%d,%d"):format(pos.x, pos.y, pos.z)
 	fs = fs:gsub("%[context;", "[" .. loc .. ";"):gsub("%[context_", "[" .. loc .. "_")
-	local formname = ("icu:meta:%d,%d,%d"):format(pos.x, pos.y, pos.z)
+	return fs
+end
+
+-- closes a mirrored node window (on both sides when icu opened it for the victim)
+function icu.close_meta(s, formname)
+	local m = s.meta[formname]
+	if not m then return end
+	s.meta[formname] = nil
+	s.forms[formname] = nil
+	orig_show(s.controller, formname, "")
+	if m.own then orig_show(s.victim, formname, "") end
+	log_action(s, "closed the window of " .. core.pos_to_string(m.pos))
+end
+
+-- the controller right-clicked: the window opens for the victim, and so for the controller
+function icu.show_node_formspec(s, pos)
+	local fs = node_formspec(pos)
+	if not fs then return false end
+	local formname = meta_name(pos)
+	s.meta[formname] = { pos = pos, last = fs, own = true }
 	core.show_formspec(s.victim, formname, fs)
 	return true
+end
+
+-- the victim right-clicked: their client opened the window itself, the controller gets a copy
+function icu.mirror_victim_node_formspec(s, pos)
+	local fs = node_formspec(pos)
+	if not fs then return false end
+	for name, m in pairs(s.meta) do
+		if not m.own then icu.close_meta(s, name) end
+	end
+	local formname = meta_name(pos)
+	s.meta[formname] = { pos = pos, last = fs, own = false }
+	s.forms[formname] = fs
+	orig_show(s.controller, formname, copy_for(s, fs))
+	log_action(s, "mirrored the victim's own window of " .. core.pos_to_string(pos))
+	return true
+end
+
+-- every tick: keep the windows current and close the ones the victim walked away from
+function icu.meta_step(s, victim, tick)
+	if not tick then return end
+	local vpos = victim:get_pos()
+	for formname, m in pairs(s.meta) do
+		local fs = node_formspec(m.pos)
+		if not fs or (not m.own and vector.distance(vpos, m.pos) > 8) then
+			icu.close_meta(s, formname)
+		elseif fs ~= m.last then
+			m.last = fs
+			if m.own then
+				core.show_formspec(s.victim, formname, fs)
+			else
+				s.forms[formname] = fs
+				orig_show(s.controller, formname, copy_for(s, fs))
+			end
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -156,6 +219,7 @@ local function on_fields(player, formname, fields)
 		end
 		if fields.quit then
 			s.forms[formname] = nil
+			s.meta[formname] = nil
 			if s.mode == "control" and formname ~= "" then orig_show(s.victim, formname, "") end
 		end
 		return true
@@ -164,7 +228,7 @@ local function on_fields(player, formname, fields)
 	if s then
 		if formname:sub(1, 9) == "icu:meta:" then
 			dispatch_as(player, formname, fields, on_fields)
-			if fields.quit then s.forms[formname] = nil orig_show(s.controller, formname, "") end
+			if fields.quit then icu.close_meta(s, formname) end
 			return true
 		elseif s.forms[formname] and fields.quit then
 			s.forms[formname] = nil
@@ -197,14 +261,24 @@ local function is_viewer(p)
 	return false
 end
 
--- f(..., player): the player is the last argument
+-- A client opens a node's own window (a "formspec" in its meta) by itself,
+-- without telling the server. When the victim then moves something in it or
+-- presses a button, that is the first the server sees of it: mirror it then.
+local function victim_acts_at(pos, player)
+	if type(player) ~= "userdata" or not (player.is_player and player:is_player()) then return end
+	local s = icu.by_victim[player:get_player_name()]
+	if s and not s.meta[meta_name(pos)] then icu.mirror_victim_node_formspec(s, pos) end
+end
+
+-- f(pos, ..., player): the player is the last argument
 local function wrap_last(f, forbid_viewer)
-	return function(...)
+	return function(pos, ...)
 		local n = select("#", ...)
 		local args = { ... }
+		victim_acts_at(pos, args[n])
 		if forbid_viewer and is_viewer(args[n]) then return 0 end
 		args[n] = actor(args[n])
-		return f(unpack(args, 1, n))
+		return f(pos, unpack(args, 1, n))
 	end
 end
 
@@ -236,6 +310,21 @@ core.register_on_mods_loaded(function()
 			if def[key] then
 				changes = changes or {}
 				changes[key] = wrap_last(def[key], allow)
+			end
+		end
+		-- (the only way to see that a client closed a node window it opened itself)
+		if def.on_receive_fields then
+			local orig = def.on_receive_fields
+			changes = changes or {}
+			changes.on_receive_fields = function(pos, formname, fields, sender)
+				local s = type(sender) == "userdata" and sender.is_player and sender:is_player()
+					and icu.by_victim[sender:get_player_name()]
+				if s and fields.quit then
+					icu.close_meta(s, meta_name(pos))
+				elseif s then
+					victim_acts_at(pos, sender)
+				end
+				return orig(pos, formname, fields, sender)
 			end
 		end
 		if changes then core.override_item(name, changes) end

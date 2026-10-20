@@ -36,6 +36,19 @@ A server operator tool: **control** another player, or **watch** them
   inventory list *is* the victim's: items they move come from and go to the
   victim's inventory. The controller's own inventory key opens the victim's
   inventory.
+- **Node windows** are mirrored for every kind of node:
+  - nodes that keep a `formspec` in their meta (Skyblock: Zero's storinators,
+    Minetest Game's furnaces ...): when the controller right-clicks one, the
+    window opens for the victim and the controller, and is **kept current** as
+    the node changes its formspec (a furnace's fire and progress);
+  - nodes whose `on_rightclick` opens a window with `core.show_formspec`
+    (Minetest Game's chests ...): the controller's click runs it as the victim
+    and the window is mirrored;
+  - windows the victim opens by themselves (a client opens a meta formspec on
+    its own and never tells the server): they are mirrored to the controller or
+    viewer at the victim's first action in them (moving an item, a button), and
+    closed when the victim closes them (if the node has `on_receive_fields`),
+    walks more than 8 nodes away, or the node changes.
 - Mods' inventory callbacks, craft callbacks and `on_receive_fields` see the
   victim as the actor, not the controller.
 - **Chat**: what the controller types, messages and commands alike, is said and
@@ -87,10 +100,10 @@ for the session and restored at the end. Not mirrored: the minimap element, and
   action and swapped back.
 - `core.item_place` reads the *victim's* sneak key for "right-click the node or
   place against it".
-- Formspecs a client opens itself when the victim right-clicks a node (a node's
-  meta formspec) aren't mirrored; the ones the controller opens that way are
-  shown to both. Mods that kept `core.show_formspec` in a local before icu loaded
-  can't be mirrored either.
+- A node window the victim's client opens by itself is only mirrored from the
+  victim's first action in it (see above), and only closed with it if the node
+  has `on_receive_fields`. Mods that kept `core.show_formspec` in a local before
+  icu loaded can't be mirrored.
 - The crafting grid isn't mirrored for the controller (the inventory lists
   `main` and other plain lists are).
 - Movement works by pushing the victim's velocity (a server can't press a

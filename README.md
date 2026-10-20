@@ -63,7 +63,10 @@ A server operator tool: **control** another player, or **watch** them
   shows only the victim.
 - Nothing the controller does goes through as themselves: the `interact`
   privilege is taken away for the session (and given back when it ends, or at
-  their next join if the server stopped meanwhile).
+  their next join if the server stopped meanwhile). The server still counts
+  them as having it, because the engine refuses inventory changes and crafting
+  without it, and stops what their client sends as themselves instead
+  (punching, using or placing their own item, right-clicking, dropping).
 
 ## View only
 

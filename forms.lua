@@ -136,6 +136,7 @@ local function node_formspec(pos)
 	if fs == "" then return nil end
 	local loc = ("nodemeta:%d,%d,%d"):format(pos.x, pos.y, pos.z)
 	fs = fs:gsub("%[context;", "[" .. loc .. ";"):gsub("%[context_", "[" .. loc .. "_")
+	fs = fs:gsub("(list%[)current_name;", "%1" .. loc .. ";"):gsub("(listring%[)current_name;", "%1" .. loc .. ";")
 	return fs
 end
 

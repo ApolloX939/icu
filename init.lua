@@ -41,6 +41,7 @@ local ie = core.request_insecure_environment()
 local debug_lib = ie and ie.debug
 ie = nil
 dofile(modpath .. "/session.lua")
+dofile(modpath .. "/guard.lua")
 dofile(modpath .. "/hudmirror.lua")
 dofile(modpath .. "/chat.lua")
 dofile(modpath .. "/hud.lua")

@@ -32,115 +32,86 @@ end
 -- Another player's inventory can't be drawn from "player:<name>" (a client
 -- only has its own), so the controller gets a detached copy of the victim's
 -- inventory, and what they do with it is written back to the real one.
+-- In a window that isn't a node's, "context" and "current_name" in a list
+-- mean the player's own inventory too (the game's craft page uses it for
+-- shift-click), the controller's own one if it stayed.
 function icu.swap_player_words(fs, s)
 	local loc = s.mode == "control" and ("detached:" .. s.detached) or ("player:" .. s.victim)
+	for _, word in ipairs({ "context", "current_name" }) do
+		fs = fs:gsub("(list%[)" .. word .. ";", "%1current_player;"):gsub("(listring%[)" .. word .. ";", "%1current_player;")
+	end
 	return (fs:gsub("current_player", loc))
 end
 
-function icu.sync_inventory(s, force)
-	local victim = core.get_player_by_name(s.victim)
-	local det = core.get_inventory({ type = "detached", name = s.detached })
-	if not victim or not det then return end
-	local real = victim:get_inventory()
-	for name, list in pairs(real:get_lists()) do
-		local parts = {}
-		for i, stack in ipairs(list) do parts[i] = stack:to_string() end
-		local sig = table.concat(parts, "|")
-		if force or s.sig[name] ~= sig or det:get_size(name) ~= #list then
-			s.sig[name] = sig
-			det:set_size(name, #list)
-			det:set_list(name, list)
-		end
-	end
+local function list_sig(list)
+	local parts = {}
+	for i, stack in ipairs(list or {}) do parts[i] = stack:to_string() end
+	return table.concat(parts, "|")
 end
 
-local function write_back(s)
-	local victim = core.get_player_by_name(s.victim)
-	local det = core.get_inventory({ type = "detached", name = s.detached })
-	if not victim or not det then return end
-	local real = victim:get_inventory()
-	for name, list in pairs(det:get_lists()) do
-		if real:get_size(name) > 0 then
-			real:set_list(name, list)
-			local parts = {}
-			for i, stack in ipairs(real:get_list(name)) do parts[i] = stack:to_string() end
-			s.sig[name] = table.concat(parts, "|")
-		end
-	end
-end
-
--- The engine works out a player's craft preview and takes the ingredients
--- itself, but only for the player's own inventory, not for the detached copy
--- the controller works in. So the controller's changes of the craft grid
--- update the preview here, and taking the result crafts, like the engine does.
+-- The engine works out a player's craft preview, but only for the player's own
+-- inventory, not for the detached copy the controller works in, so the copy's
+-- preview is worked out here. (Taking the result is a craft action, which the
+-- engine does in the copy itself, with guard.lua's interact.)
 local function craft_width(list)
 	return math.max(1, math.floor(math.sqrt(#list) + 0.5))
 end
 
-local function craft_preview(s)
-	local victim = core.get_player_by_name(s.victim)
-	local det = core.get_inventory({ type = "detached", name = s.detached })
-	if not victim or not det then return end
+local function craft_preview(s, victim, det)
 	local real = victim:get_inventory()
 	local grid = det:get_list("craft")
 	if not grid then return end
 	local out = ItemStack()
 	local res = core.get_craft_result({ method = "normal", width = craft_width(grid), items = grid })
 	if res and res.item and not res.item:is_empty() then
-		out = res.item
-		for _, predict in ipairs(core.registered_craft_predicts) do
-			out = predict(out, victim, grid, real) or out
-		end
+		out = core.craft_predict(res.item, victim, grid, det)
 	end
 	for _, inv in ipairs({ det, real }) do
 		if inv:get_size("craftpreview") > 0 then inv:set_stack("craftpreview", 1, out) end
 	end
-	s.sig.craftpreview = out:to_string()
 end
 
--- The controller took the preview: use up the ingredients (the result is
--- already in the list it was moved to).
-local function craft_done(s)
+-- Both ways: a list that changed in the victim's inventory since the last
+-- sync is copied to the copy, one that changed in the copy (the controller's
+-- moves, the engine's crafting) goes to the victim's. If both changed, the
+-- victim's wins. The craft preview is never copied (craft_preview does it).
+function icu.sync_inventory(s, force)
 	local victim = core.get_player_by_name(s.victim)
 	local det = core.get_inventory({ type = "detached", name = s.detached })
 	if not victim or not det then return end
 	local real = victim:get_inventory()
-	local old = det:get_list("craft")
-	local res, left = core.get_craft_result({ method = "normal", width = craft_width(old), items = old })
-	if not res or res.item:is_empty() then return end
-	det:set_list("craft", left.items)
-	write_back(s) -- the victim's inventory first, then the extras go on top of it
-	for _, extra in ipairs(res.replacements or {}) do
-		local rest = real:add_item("main", extra)
-		if not rest:is_empty() then core.item_drop(rest, victim, victim:get_pos()) end
+	local craft_changed = force
+	for name, list in pairs(real:get_lists()) do
+		if name ~= "craftpreview" or force then
+			local rsig = list_sig(list)
+			local same_size = det:get_size(name) == #list
+			if force or not same_size or rsig ~= s.sig[name] then
+				det:set_size(name, #list)
+				det:set_list(name, list)
+				if s.sig[name] ~= rsig and name == "craft" then craft_changed = true end
+				s.sig[name] = rsig
+			elseif list_sig(det:get_list(name)) ~= s.sig[name] then
+				real:set_list(name, det:get_list(name))
+				s.sig[name] = list_sig(real:get_list(name))
+				if name == "craft" then craft_changed = true end
+			end
+		end
 	end
-	for _, on_craft in ipairs(core.registered_on_crafts) do
-		on_craft(res.item, victim, old, real)
-	end
-	icu.sync_inventory(s, true)
+	if craft_changed then craft_preview(s, victim, det) end
 end
 
 local function craft_list(name) return name == "craftpreview" or name == "craftresult" end
 
 local function detached_callbacks(s)
-	local function changed(from_list, to_list)
-		if from_list == "craftpreview" then craft_done(s) else write_back(s) end
-		craft_preview(s)
-	end
+	local function changed() icu.sync_inventory(s) end
 	return {
-		allow_move = function(inv, from_list, from_index, to_list, _, count)
-			if craft_list(to_list) then return 0 end
-			-- the result can only be taken whole
-			if from_list == "craftpreview" and count < inv:get_stack(from_list, from_index):get_count() then
-				return 0
-			end
-			return count
-		end,
+		-- (the engine itself refuses moves out of the preview and into the result)
+		allow_move = function(_, _, _, to_list, _, count) return craft_list(to_list) and 0 or count end,
 		allow_put = function(_, listname, _, stack) return craft_list(listname) and 0 or stack:get_count() end,
-		allow_take = function(_, _, _, stack) return stack:get_count() end,
-		on_move = function(_, from_list, _, to_list) changed(from_list, to_list) end,
-		on_put = function(_, listname) changed(nil, listname) end,
-		on_take = function(_, listname) changed(listname) end,
+		allow_take = function(_, listname, _, stack) return listname == "craftpreview" and 0 or stack:get_count() end,
+		on_move = changed,
+		on_put = changed,
+		on_take = changed,
 	}
 end
 
@@ -242,6 +213,8 @@ function icu.start(controller_name, victim_name, mode)
 		privs.interact = nil
 		core.set_player_privs(controller_name, privs)
 	end
+	-- but the server counts them as having it, for the inventory (guard.lua)
+	s.server_interact = mode == "control"
 
 	-- invisible and tiny: even a third person camera shows only the victim (the
 	-- controller's own armor and other attached things are hidden too)

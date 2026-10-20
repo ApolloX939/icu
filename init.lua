@@ -34,10 +34,16 @@ core.register_privilege("icu_immune", {
 })
 
 local modpath = core.get_modpath(core.get_current_modname())
+
+-- The insecure environment can only be requested from the mod's main file. Only
+-- its debug library is kept, and only handed to forms.lua (never stored in `icu`).
+local ie = core.request_insecure_environment()
+local debug_lib = ie and ie.debug
+ie = nil
 dofile(modpath .. "/session.lua")
 dofile(modpath .. "/hudmirror.lua")
 dofile(modpath .. "/chat.lua")
 dofile(modpath .. "/hud.lua")
-dofile(modpath .. "/forms.lua")
+assert(loadfile(modpath .. "/forms.lua"))(debug_lib)
 dofile(modpath .. "/relay.lua")
 dofile(modpath .. "/commands.lua")

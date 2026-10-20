@@ -6,6 +6,11 @@
 local orig_show = core.show_formspec
 icu.raw_show = orig_show
 
+-- Needed to reach the mods that saved core.show_formspec in a local before icu
+-- loaded (see patch_saved_references): only there when icu is a trusted mod
+-- (init.lua hands it over).
+local debug_lib = ...
+
 local function esc(s) return core.formspec_escape(s) end
 
 ---------------------------------------------------------------------------
@@ -290,7 +295,57 @@ local function wrap_first(f, forbid_viewer)
 	end
 end
 
+-- A mod that did `local show_formspec = core.show_formspec` at load (smartshop,
+-- for one) keeps the original function, so its windows would never reach the
+-- wrapper above. Every Lua function that holds the original as an upvalue gets
+-- the wrapper instead. Needs icu in secure.trusted_mods (for the debug library).
+local function patch_saved_references()
+	if not debug_lib then
+		core.log("info", "[icu] not a trusted mod: windows of mods that load before icu and saved "
+			.. "core.show_formspec in a local can't be mirrored (add icu to secure.trusted_mods).")
+		return
+	end
+	local seen, stack, patched = {}, { _G, core }, 0
+	local function visit_function(f)
+		if seen[f] then return end
+		seen[f] = true
+		local info = debug_lib.getinfo(f, "S")
+		-- (not icu's own functions: its wrapper holds the original on purpose)
+		if info and info.source and info.source:find("/icu/", 1, true) then return end
+		local i = 1
+		while true do
+			local name, value = debug_lib.getupvalue(f, i)
+			if not name then break end
+			if value == orig_show then
+				debug_lib.setupvalue(f, i, core.show_formspec)
+				patched = patched + 1
+			elseif type(value) == "table" then
+				stack[#stack + 1] = value
+			elseif type(value) == "function" then
+				visit_function(value)
+			end
+			i = i + 1
+		end
+	end
+	while #stack > 0 do
+		local t = table.remove(stack)
+		if not seen[t] then
+			seen[t] = true
+			local k, v = next(t)
+			while k ~= nil do
+				if type(v) == "function" then visit_function(v)
+				elseif type(v) == "table" and not seen[v] then stack[#stack + 1] = v end
+				if type(k) == "table" and not seen[k] then stack[#stack + 1] = k end
+				k, v = next(t, k)
+			end
+		end
+	end
+	core.log("action", "[icu] patched " .. patched .. " saved references to core.show_formspec")
+end
+
 core.register_on_mods_loaded(function()
+	patch_saved_references()
+
 	-- our field handler first
 	local list = core.registered_on_player_receive_fields
 	for i, f in ipairs(list) do

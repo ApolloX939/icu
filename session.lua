@@ -141,7 +141,16 @@ function icu.start(controller_name, victim_name, mode)
 		core.set_player_privs(controller_name, privs)
 	end
 
-	controller:set_properties({ is_visible = false, pointable = false, show_on_minimap = false })
+	-- invisible and tiny: even a third person camera shows only the victim (the
+	-- controller's own armor and other attached things are hidden too)
+	controller:set_properties({ is_visible = false, pointable = false, show_on_minimap = false,
+		visual_size = { x = 0.01, y = 0.01, z = 0.01 } })
+	s.hidden_children = {}
+	for _, child in ipairs(controller:get_children()) do
+		local props = child:get_properties()
+		s.hidden_children[#s.hidden_children + 1] = { obj = child, visible = props.is_visible }
+		child:set_properties({ is_visible = false })
+	end
 	controller:set_nametag_attributes({ text = " ", color = { a = 0, r = 0, g = 0, b = 0 }, bgcolor = false })
 	controller:set_attach(victim, "", { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 })
 	sv.eye_offset = { controller:get_eye_offset() }
@@ -192,8 +201,11 @@ function icu.stop(controller_name, reason)
 		controller:set_detach()
 		controller:set_properties({
 			is_visible = sv.props.is_visible, pointable = sv.props.pointable,
-			show_on_minimap = sv.props.show_on_minimap,
+			show_on_minimap = sv.props.show_on_minimap, visual_size = sv.props.visual_size,
 		})
+		for _, c in ipairs(s.hidden_children or {}) do
+			if c.obj:is_valid() then c.obj:set_properties({ is_visible = c.visible }) end
+		end
 		controller:set_nametag_attributes(sv.nametag)
 		controller:set_eye_offset(unpack(sv.eye_offset))
 		controller:set_fov(unpack(sv.fov))

@@ -58,6 +58,9 @@ A server operator tool: **control** another player, or **watch** them
 - **Movement**: the controller's keys (forward, back, left, right in the
   direction they look, sneak, jump, and sprint when the victim has `fast`) move
   the victim. The controller's own body stays attached to the victim.
+- The controller is made invisible and tiny for the session, and what is
+  attached to them (worn armor ...) is hidden, so even a third person camera
+  shows only the victim.
 - Nothing the controller does goes through as themselves: the `interact`
   privilege is taken away for the session (and given back when it ends, or at
   their next join if the server stopped meanwhile).
@@ -81,6 +84,10 @@ but nothing the viewer does changes anything:
   the victim, and fields they submit in those windows are dropped.
 
 ## The victim's HUD
+
+(The hotbar shows the victim's items with counts and tool wear bars, and the
+item they hold is drawn large at the bottom right in place of the controller's
+own hand.)
 
 In both modes the controller / viewer's HUD is the victim's: every element mods
 add to the victim (bars, texts, images, waypoints), with later changes and
@@ -109,6 +116,14 @@ for the session and restored at the end. Not mirrored: the minimap element, and
 - Movement works by pushing the victim's velocity (a server can't press a
   client's keys): it is not exact (acceleration, ice, ladders, flying and
   swimming aren't handled specially).
+
+## Mods that saved `core.show_formspec`
+
+icu wraps `core.show_formspec` to mirror windows. A mod that loads before icu and
+keeps the original in a local (`local show = core.show_formspec`) would bypass
+it. If icu is in `secure.trusted_mods`, icu finds those saved references at
+startup and points them at the wrapper (the server log says how many). Mods that
+load after icu (smartshop does) need nothing.
 
 ## Settings
 

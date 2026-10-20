@@ -77,7 +77,8 @@ function icu.hudmirror_flags(s)
 	local c, v = controller_of(s), core.get_player_by_name(s.victim)
 	if not (c and v) then return end
 	local flags = v:hud_get_flags()
-	flags.hotbar, flags.healthbar, flags.breathbar, flags.chat = false, false, false, true
+	-- (the held item is drawn by icu too: the controller's own hand isn't the victim's)
+	flags.hotbar, flags.healthbar, flags.breathbar, flags.wielditem, flags.chat = false, false, false, false, true
 	orig.hud_set_flags(c, flags)
 end
 

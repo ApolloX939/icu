@@ -210,8 +210,20 @@ function icu.move_step(s, controller, victim, dt)
 			speed = speed * (victim:get_physics_override().speed or 1)
 			tx, tz = dx / n * speed, dz / n * speed
 		end
-		local k = math.min(1, dt * 8)
-		victim:add_velocity({ x = (tx - vel.x) * k, y = 0, z = (tz - vel.z) * k })
+		-- The victim's client slows them down by a fixed fraction every step when
+		-- they press nothing, and the server can only add velocity once a step.
+		-- Learn that fraction (this step's speed against the speed after the
+		-- last push) and push harder to make up for it, so the average speed
+		-- over a step is the target and not a third of it.
+		local ratio = s.decay or 0.4
+		if s.pushed and s.pushed > 0.5 and wants then
+			ratio = ratio * 0.7 + math.min(0.9, math.max(0.05, flat / s.pushed)) * 0.3
+			s.decay = ratio
+		end
+		local boost = tx == 0 and tz == 0 and 0 or math.min(3, -math.log(ratio) / (1 - ratio))
+		local px, pz = tx * boost, tz * boost
+		s.pushed = math.sqrt(px * px + pz * pz)
+		victim:add_velocity({ x = px - vel.x, y = 0, z = pz - vel.z })
 	end
 	s.moving = wants
 

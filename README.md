@@ -115,7 +115,10 @@ for the session and restored at the end. Not mirrored: the minimap element, and
   `main` and other plain lists are).
 - Movement works by pushing the victim's velocity (a server can't press a
   client's keys): it is not exact (acceleration, ice, ladders, flying and
-  swimming aren't handled specially).
+  swimming aren't handled specially). The victim's client slows them down
+  a fixed fraction every step when they press nothing; icu learns that fraction
+  from the victim's speed and pushes harder to make up for it, so the victim
+  walks at about the normal walking speed (measured 4.1 of 4 nodes/s; it was 1.25).
 
 ## Mods that saved `core.show_formspec`
 
@@ -131,7 +134,7 @@ load after icu (smartshop does) need nothing.
 | --- | --- | --- |
 | `icu.notify_target` | true | Tell the victim when a control session starts and ends (view only is never announced). |
 | `icu.return_to_origin` | true | Put the controller back where they were at the end. |
-| `icu.camera_forward` / `icu.camera_up` | 4 / 2 | Camera offset from the victim's eyes (1/10 node). |
+| `icu.camera_forward` / `icu.camera_up` | 4 / 2 | Camera offset from the victim's eyes (1/10 node) when looking straight ahead. Looking down moves the camera up and forward (up to 0.6 node more each, from 17 to 69 degrees down) so the victim's tilted head stays out of the view. |
 | `icu.log_actions` | false | Log every relayed action. |
 
 Every session start and end, control or view, is always logged on the server (`[icu] ...`).

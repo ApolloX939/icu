@@ -84,8 +84,11 @@ end
 -- player's own eye height (the attach position doesn't move it), so the camera
 -- would sit inside the victim's head model. The first person eye offset moves
 -- it to just in front of the face.
+-- Looking down, the victim's head tilts forward and down into the view, so
+-- the camera moves up and forward as the pitch grows, to stay clear of it.
 local function apply_camera(controller)
-	controller:set_eye_offset({ x = 0, y = icu.camera_up, z = icu.camera_forward })
+	local t = math.min(1, math.max(0, (controller:get_look_vertical() - 0.3) / 0.9))
+	controller:set_eye_offset({ x = 0, y = icu.camera_up + 6 * t, z = icu.camera_forward + 6 * t })
 end
 
 -- What the controller's body looks like during a session. Other mods change

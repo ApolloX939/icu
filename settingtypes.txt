@@ -1,0 +1,14 @@
+# Tell a player when someone starts or stops controlling them (watching them
+# view only is never announced).
+icu.notify_target (Tell the player) bool true
+
+# Put the controller / viewer back where they were when the session ends.
+icu.return_to_origin (Return to the starting place) bool true
+
+# Where the controller's camera sits relative to the victim's eyes (1/10 node,
+# 4 = 0.4 nodes in front): outside the head model, which the camera would be inside otherwise.
+icu.camera_forward (Camera forward) int 4 0 10
+icu.camera_up (Camera up) int 2 0 10
+
+# Log every relayed action (punch, dig, place, use, formspec) to the server log.
+icu.log_actions (Log relayed actions) bool false

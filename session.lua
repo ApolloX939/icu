@@ -88,6 +88,41 @@ local function apply_camera(controller)
 	controller:set_eye_offset({ x = 0, y = icu.camera_up, z = icu.camera_forward })
 end
 
+-- What the controller's body looks like during a session. Other mods change
+-- these properties all the time (sbt's playeranim sets visual_size back to 1
+-- every step to apply crouching), which would undo the shrinking, so
+-- set_properties is patched to keep them while the player is in a session.
+local HIDDEN_PROPS = { is_visible = false, pointable = false, show_on_minimap = false }
+local function hidden_size() return { x = 0.01, y = 0.01, z = 0.01 } end
+
+local orig_set_properties
+local function patch_set_properties(obj)
+	if orig_set_properties then return end
+	local methods = getmetatable(obj)
+	orig_set_properties = methods.set_properties
+	function methods.set_properties(self, props)
+		if props and self.is_player and self:is_player() and icu.by_controller[self:get_player_name()] then
+			props = table.copy(props)
+			for k, v in pairs(HIDDEN_PROPS) do
+				if props[k] ~= nil then props[k] = v end
+			end
+			if props.visual_size ~= nil then props.visual_size = hidden_size() end
+		end
+		return orig_set_properties(self, props)
+	end
+end
+
+-- Things attached to the controller (worn armor, the held item ...) are hidden
+-- too, also the ones made after the session started.
+local function hide_children(s, controller)
+	for _, child in ipairs(controller:get_children()) do
+		if s.hidden_children[child] == nil then
+			s.hidden_children[child] = child:get_properties().is_visible
+			child:set_properties({ is_visible = false })
+		end
+	end
+end
+
 local function hud_text(controller, text, y)
 	return controller:hud_add({
 		type = "text", position = { x = 0.5, y = y }, offset = { x = 0, y = 0 },
@@ -143,14 +178,11 @@ function icu.start(controller_name, victim_name, mode)
 
 	-- invisible and tiny: even a third person camera shows only the victim (the
 	-- controller's own armor and other attached things are hidden too)
+	patch_set_properties(controller)
 	controller:set_properties({ is_visible = false, pointable = false, show_on_minimap = false,
-		visual_size = { x = 0.01, y = 0.01, z = 0.01 } })
-	s.hidden_children = {}
-	for _, child in ipairs(controller:get_children()) do
-		local props = child:get_properties()
-		s.hidden_children[#s.hidden_children + 1] = { obj = child, visible = props.is_visible }
-		child:set_properties({ is_visible = false })
-	end
+		visual_size = hidden_size() })
+	s.hidden_children = {} -- child object -> was it visible
+	hide_children(s, controller)
 	controller:set_nametag_attributes({ text = " ", color = { a = 0, r = 0, g = 0, b = 0 }, bgcolor = false })
 	controller:set_attach(victim, "", { x = 0, y = 0, z = 0 }, { x = 0, y = 0, z = 0 })
 	sv.eye_offset = { controller:get_eye_offset() }
@@ -203,8 +235,8 @@ function icu.stop(controller_name, reason)
 			is_visible = sv.props.is_visible, pointable = sv.props.pointable,
 			show_on_minimap = sv.props.show_on_minimap, visual_size = sv.props.visual_size,
 		})
-		for _, c in ipairs(s.hidden_children or {}) do
-			if c.obj:is_valid() then c.obj:set_properties({ is_visible = c.visible }) end
+		for obj, visible in pairs(s.hidden_children or {}) do
+			if obj:is_valid() then obj:set_properties({ is_visible = visible }) end
 		end
 		controller:set_nametag_attributes(sv.nametag)
 		controller:set_eye_offset(unpack(sv.eye_offset))
@@ -276,6 +308,7 @@ core.register_globalstep(function(dtime)
 					controller:set_fov(fov, mult, 0)
 				end
 			end
+			if refresh_info then hide_children(s, controller) end
 			icu.hotbar_update(s, controller, victim)
 			icu.meta_step(s, victim, refresh_info)
 			if refresh_info then

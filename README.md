@@ -114,23 +114,18 @@ for the session and restored at the end. Not mirrored: the minimap element, and
   victim's first action in it (see above), and only closed with it if the node
   has `on_receive_fields`. Mods that kept `core.show_formspec` in a local before
   icu loaded can't be mirrored.
-- The crafting grid works for the controller like the player's own: the
-  preview is worked out as the controller changes the grid, and moving the
-  result out crafts (use up the ingredients, replacements, craft callbacks as
-  the victim, so quests count). Shift-click and "craft all" buttons that read
-  the victim's inventory work from what's written back. The result can only
-  be taken whole.
-- What the controller punches or places on is what's under the crosshair, seen
-  from the camera, as far as the victim can reach; if there's nothing there,
-  the same direction from the victim's eyes (so looking straight down at an
-  edge reaches the node under the victim). The victim's own held item and
-  armor are never hit.
-- Movement works by pushing the victim's velocity (a server can't press a
-  client's keys): it is not exact (acceleration, ice, ladders, flying and
-  swimming aren't handled specially). The victim's client slows them down
-  a fixed fraction every step when they press nothing; icu learns that fraction
-  from the victim's speed and pushes harder to make up for it, so the victim
-  walks at about the normal walking speed (measured 4.1 of 4 nodes/s; it was 1.25).
+- The crafting grid works for the controller like the player's own (drag,
+  shift-click, taking the result, "craft all"): the preview is worked out as
+  the controller changes the grid, taking the result is the engine's own
+  craft, and craft callbacks get the victim, so quests count.
+- Movement works by setting the victim's velocity (a server can't press a
+  client's keys): it is not exact (ice, ladders, flying and swimming aren't
+  handled specially). For the session the victim's client doesn't accelerate
+  or brake on its own (their acceleration physics are 0, and their walk speed
+  physics are raised for the server's speed check only), so they walk at the
+  normal walking speed (measured 12.4 nodes in 3 s while turning, 4 nodes/s).
+  The victim's look is sent only when it changes, and while walking at most 5
+  times a second, as each one sends the victim's position too.
   The sprint key (Aux1) speeds the victim up by `icu.sprint_multiplier`.
 
 ## Mods that saved `core.show_formspec`

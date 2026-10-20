@@ -293,7 +293,10 @@ function icu.stop(controller_name, reason)
 	end
 	core.remove_detached_inventory(s.detached)
 	give_back_interact(controller_name)
-	if victim and s.mode == "control" then victim:set_fov(unpack(sv.victim_fov)) end
+	if victim and s.mode == "control" then
+		victim:set_fov(unpack(sv.victim_fov))
+		icu.move_stop(s, victim)
+	end
 
 	core.log("action", ("[icu] %s stops %s %s%s"):format(controller_name,
 		s.mode == "control" and "controlling" or "viewing", s.victim, reason and (" (" .. reason .. ")") or ""))
@@ -330,14 +333,13 @@ core.register_globalstep(function(dtime)
 			apply_camera(controller)
 			if s.mode == "control" then
 				icu.sync_inventory(s)
-				victim:set_look_horizontal(controller:get_look_horizontal())
-				victim:set_look_vertical(controller:get_look_vertical())
 				local fov, mult = controller:get_fov()
 				if s.last_fov ~= fov or s.last_mult ~= mult then
 					s.last_fov, s.last_mult = fov, mult
 					victim:set_fov(fov, mult, 0)
 				end
 				icu.move_step(s, controller, victim, dtime)
+				icu.sync_look(s, controller, victim, dtime)
 				icu.relay_step(s, controller, victim, dtime)
 			else
 				controller:set_look_horizontal(victim:get_look_horizontal())
